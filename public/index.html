@@ -1,0 +1,880 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+ <head>
+  <meta charset="utf-8"/>
+  <meta content="width=device-width, initial-scale=1" name="viewport"/>
+  <meta content="在本机管理 ChatGPT 邮箱登录、任务队列和会话。" name="description"/>
+  <meta content="light dark" name="color-scheme"/>
+  <title>
+   账号与会话 · ChatGPT Login
+  </title>
+  <link href="/favicon.svg" rel="icon" type="image/svg+xml"/>
+  <link href="/styles.css" rel="stylesheet"/>
+  <script src="/app.mjs" type="module">
+  </script>
+ </head>
+ <body>
+  <a class="skip-link" href="#main">
+   跳到主要内容
+  </a>
+  <svg aria-hidden="true" class="icon-defs" xmlns="http://www.w3.org/2000/svg">
+   <defs>
+    <symbol id="i-copy" viewBox="0 0 24 24">
+     <rect height="13" rx="2" width="12" x="8" y="8">
+     </rect>
+     <path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3">
+     </path>
+    </symbol>
+    <symbol id="i-search" viewBox="0 0 24 24">
+     <circle cx="10.5" cy="10.5" r="6.5">
+     </circle>
+     <path d="m16 16 4.5 4.5">
+     </path>
+    </symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24">
+     <path d="M12 5v14M5 12h14">
+     </path>
+    </symbol>
+    <symbol id="i-play" viewBox="0 0 24 24">
+     <path d="m9 5 11 7-11 7Z">
+     </path>
+    </symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24">
+     <path d="M20 7v5h-5M4 17v-5h5">
+     </path>
+     <path d="M5.5 7a7 7 0 0 1 12-2L20 8M4 16l2.5 3a7 7 0 0 0 12-2">
+     </path>
+    </symbol>
+    <symbol id="i-log" viewBox="0 0 24 24">
+     <path d="m4 7 4 4-4 4M12 16h8">
+     </path>
+    </symbol>
+    <symbol id="i-arrow" viewBox="0 0 24 24">
+     <path d="m8 5 7 7-7 7">
+     </path>
+    </symbol>
+    <symbol id="i-mail" viewBox="0 0 24 24">
+     <rect height="14" rx="2" width="18" x="3" y="5">
+     </rect>
+     <path d="m3 6 9 7 9-7">
+     </path>
+    </symbol>
+    <symbol id="i-key" viewBox="0 0 24 24">
+     <circle cx="8" cy="8" r="4">
+     </circle>
+     <path d="m11 11 9 9m-4-4 3-3m-6 0 3-3">
+     </path>
+    </symbol>
+    <symbol id="i-chevron" viewBox="0 0 24 24">
+     <path d="m6 9 6 6 6-6">
+     </path>
+    </symbol>
+    <symbol id="i-edit" viewBox="0 0 24 24">
+     <path d="m15 4 5 5-11 11H4v-5ZM12 7l5 5">
+     </path>
+    </symbol>
+    <symbol id="i-close" viewBox="0 0 24 24">
+     <path d="m6 6 12 12M18 6 6 18">
+     </path>
+    </symbol>
+    <symbol id="i-download" viewBox="0 0 24 24">
+     <path d="M12 3v12m-4-4 4 4 4-4M5 16v4h14v-4"></path>
+    </symbol>
+   </defs>
+  </svg>
+  <header class="site-header">
+   <a aria-label="ChatGPT Login 首页" class="brand" data-nav="accounts" href="#accounts">
+    <svg aria-hidden="true" class="brand-mark" fill="none" viewBox="0 0 32 32">
+     <rect fill="currentColor" height="30" rx="9" width="30" x="1" y="1">
+     </rect>
+     <path d="M21 10.5H14a4 4 0 0 0-4 4v3a4 4 0 0 0 4 4h7M17 16h5v5" stroke="var(--brand-fg)" stroke-linecap="round" stroke-linejoin="round" stroke-width="2">
+     </path>
+    </svg>
+    <span>
+     ChatGPT
+     <span class="brand-light">
+      Login
+     </span>
+    </span>
+   </a>
+   <nav aria-label="主导航" class="primary-nav">
+    <a aria-current="page" data-nav="accounts" href="#accounts">
+     账号概览
+    </a>
+    <a data-nav="manage" href="#manage">
+     账号管理
+     <span aria-label="有未保存的更改" class="draft-dot" hidden="" id="navDraft">
+     </span>
+    </a>
+    <a data-nav="tasks" href="#tasks">
+     任务队列
+     <span class="nav-count" hidden="" id="navTaskCount">
+      0
+     </span>
+    </a>
+    <a data-nav="settings" href="#settings">
+     全局设置
+    </a>
+   </nav>
+   <div class="header-tools">
+    <span class="connection" id="connBadge">
+     <span class="status-dot">
+     </span>
+     <span id="connText">
+      连接中
+     </span>
+    </span>
+   </div>
+  </header>
+  <main id="main" tabindex="-1">
+   <section aria-labelledby="pageTitle" class="page-heading">
+    <div>
+     <span hidden="" id="viewNumber">
+      01
+     </span>
+     <h1 id="pageTitle" tabindex="-1">
+      账号概览
+     </h1>
+     <p id="pageDescription">
+      搜索定位账号，常用操作直接完成。
+     </p>
+    </div>
+   </section>
+   <div class="error-banner" hidden="" id="pageError" role="alert">
+    <span id="pageErrorText">
+    </span>
+    <button class="text-btn" id="btnRetryLoad">
+     重新连接
+    </button>
+   </div>
+   <section aria-label="账号概览" data-view="accounts" id="accountsView">
+    <section aria-label="账号概况" class="metrics metrics-compact">
+     <button class="metric" data-metric-filter="all" type="button">
+      <span class="metric-label">
+       全部账号
+      </span>
+      <strong id="countTotal">
+       —
+      </strong>
+      <span class="metric-note">
+       已导入的邮箱
+      </span>
+     </button>
+     <button class="metric" data-metric-filter="ready" type="button">
+      <span class="metric-label">
+       <span class="status-dot ok">
+       </span>
+       会话可用
+      </span>
+      <strong class="metric-ok" id="countReady">
+       —
+      </strong>
+      <span class="metric-note">
+       已保存且未过期
+      </span>
+     </button>
+     <button class="metric" data-metric-filter="active" type="button">
+      <span class="metric-label">
+       <span class="status-dot running">
+       </span>
+       进行中
+      </span>
+      <strong id="countActive">
+       —
+      </strong>
+      <span class="metric-note" id="activeNote">
+       运行与等待的任务
+      </span>
+     </button>
+     <button class="metric" data-metric-filter="attention" type="button">
+      <span class="metric-label">
+       <span class="status-dot fail">
+       </span>
+       需处理
+      </span>
+      <strong id="countAttention">
+       —
+      </strong>
+      <span class="metric-note" id="attentionNote">
+       未登录、失败与过期
+      </span>
+     </button>
+    </section>
+    <a class="task-activity" data-nav="tasks" hidden="" href="#tasks" id="taskActivity">
+     <span class="status-dot running">
+     </span>
+     <span id="taskActivityText">
+     </span>
+     <span>
+      查看队列 →
+     </span>
+    </a>
+    <section aria-label="账号列表" class="workspace" id="accountWorkspace">
+     <div class="workspace-caption">
+      <h2>
+       我的账号
+      </h2>
+      <span>
+       搜索 · 筛选 · 批量管理
+      </span>
+     </div>
+     <div class="filter-bar account-toolbar">
+      <div class="search-field account-search">
+       <svg aria-hidden="true" class="icon">
+        <use href="#i-search">
+        </use>
+       </svg>
+       <label class="sr-only" for="searchInput">
+        搜索邮箱或取件地址
+       </label>
+       <input aria-keyshortcuts="/" autocomplete="off" id="searchInput" placeholder="搜索邮箱，或粘贴多个邮箱" type="search"/>
+       <button aria-label="清空搜索" class="search-clear" hidden="" id="btnClearSearch" type="button">
+        ×
+       </button>
+       <kbd aria-hidden="true">
+        /
+       </kbd>
+      </div>
+      <label class="quick-plan-filter" for="planFilter">
+       会员类别
+       <select id="planFilter">
+        <option value="all">
+         全部会员类别
+        </option>
+       </select>
+      </label>
+      <button aria-label="刷新账号" class="icon-btn" id="btnRefresh" title="刷新账号">
+       <svg class="icon">
+        <use href="#i-refresh">
+        </use>
+       </svg>
+      </button>
+      <div class="heading-actions" id="overviewActions">
+       <button class="btn primary" id="btnImport">
+        <svg class="icon">
+         <use href="#i-edit">
+         </use>
+        </svg>
+        管理账号
+       </button>
+       <details class="action-menu" id="batchMenu">
+        <summary class="btn">
+         批量操作
+         <svg class="icon">
+          <use href="#i-chevron">
+          </use>
+         </svg>
+        </summary>
+        <div aria-label="批量操作" class="action-dropdown">
+         <span class="dropdown-label" id="bulkScope">
+          当前筛选结果
+         </span>
+         <button disabled="" id="btnExportFiltered" title="导出当前筛选的全部账号（所有页）">
+          <svg class="icon"><use href="#i-download"></use></svg>
+          批量导出账号
+         </button>
+         <button id="btnSetupFiltered">
+          <svg class="icon">
+           <use href="#i-key">
+           </use>
+          </svg>
+          初始化密码 + 开通 2FA
+         </button>
+         <button id="btnPasswordsFiltered">
+          仅初始化密码
+         </button>
+         <button id="btnTwofaFiltered">
+          仅开通 2FA
+         </button>
+         <span class="dropdown-label">
+          登录与会员
+         </span>
+         <button disabled="" id="btnBatch">
+          <svg class="icon">
+           <use href="#i-play">
+           </use>
+          </svg>
+          <span id="batchLabel">
+           登录待处理
+          </span>
+         </button>
+         <button disabled="" id="btnPlansFiltered">
+          <svg class="icon"><use href="#i-refresh"></use></svg>
+          批量获取会员权益
+         </button>
+        </div>
+       </details>
+      </div>
+     </div>
+     <div class="account-filter-row">
+      <nav aria-label="筛选账号" class="filters">
+       <button aria-pressed="true" class="filter active" data-filter="all">
+        全部
+        <span id="filterAll">
+         0
+        </span>
+       </button>
+       <button aria-pressed="false" class="filter" data-filter="ready">
+        可用
+        <span id="filterReady">
+         0
+        </span>
+       </button>
+       <button aria-pressed="false" class="filter" data-filter="active">
+        进行中
+        <span id="filterActive">
+         0
+        </span>
+       </button>
+       <button aria-pressed="false" class="filter" data-filter="attention">
+        需处理
+        <span id="filterAttention">
+         0
+        </span>
+       </button>
+       <button aria-pressed="false" class="filter" data-filter="unavailable">
+        不可用
+        <span id="filterUnavailable">0</span>
+       </button>
+      </nav>
+      <span id="resultSummary" role="status">
+      </span>
+     </div>
+     <div class="active-filters" hidden="" id="activeFilters">
+      <div id="activeFilterChips">
+      </div>
+      <button class="text-btn" disabled="" id="btnResetFilters">
+       清除筛选
+      </button>
+     </div>
+     <div class="list-toolbar">
+      <label class="select-all">
+       <input id="selectAll" type="checkbox"/>
+       选择当前页
+      </label>
+      <button class="text-btn select-matches" id="btnSelectFiltered">
+       选择全部匹配
+      </button>
+      <span class="list-count" id="listCount">
+       正在加载
+      </span>
+      <div class="list-tools">
+       <label class="page-size" for="pageSizeSelect">
+        每页
+        <select id="pageSizeSelect">
+         <option value="12">
+          12 个
+         </option>
+         <option value="24">
+          24 个
+         </option>
+         <option value="48">
+          48 个
+         </option>
+        </select>
+       </label>
+       <label class="sr-only" for="sortSelect">
+        账号排序
+       </label>
+       <select id="sortSelect">
+        <option value="default">
+         默认排序
+        </option>
+        <option value="status">
+         按状态排序
+        </option>
+        <option value="email">
+         按邮箱排序
+        </option>
+       </select>
+       <button class="text-btn" id="btnTaskRecords">
+        任务记录
+       </button>
+      </div>
+     </div>
+     <div class="selection-bar" hidden="" id="selectionBar">
+      <div class="selection-caption">
+       <span id="selectionText">
+        已选 0 个账号
+       </span>
+       <span id="selectionScope">
+       </span>
+      </div>
+      <div>
+       <button class="btn primary small" id="btnLoginSelected">
+        登录所选
+       </button>
+       <button class="text-btn" id="btnClearSelection">
+        取消选择
+       </button>
+       <details class="action-menu" id="selectedMenu">
+        <summary class="btn small">
+         更多批量操作
+         <svg class="icon">
+          <use href="#i-chevron">
+          </use>
+         </svg>
+        </summary>
+        <div aria-label="所选账号操作" class="action-dropdown">
+         <button disabled="" id="btnExportSelected">
+          <svg class="icon"><use href="#i-download"></use></svg>
+          导出所选账号
+         </button>
+         <button disabled="" id="btnPlansSelected">
+          获取所选会员权益
+         </button>
+         <button class="" id="btnSetupSelected">
+          一键初始化所选
+         </button>
+         <button id="btnPasswordsSelected">
+          仅初始化密码
+         </button>
+         <button id="btnTwofaSelected">
+          仅开通 2FA
+         </button>
+        </div>
+       </details>
+      </div>
+     </div>
+     <div class="loading-state" id="loadingState" role="status">
+      <div class="skeleton-row">
+      </div>
+      <div class="skeleton-row">
+      </div>
+      <span>
+       正在读取账号与会话…
+      </span>
+     </div>
+     <div class="card-list" id="cardList">
+     </div>
+     <div class="empty-state" hidden="" id="emptyState">
+      <div class="empty-icon">
+       <svg class="icon">
+        <use href="#i-mail">
+        </use>
+       </svg>
+      </div>
+      <h2 id="emptyTitle">
+       从第一个账号开始
+      </h2>
+      <p id="emptyDescription">
+       导入邮箱与取件地址，登录成功后即可复制 Token 和完整会话。
+      </p>
+      <button class="btn" id="btnEmptyAction">
+       添加账号
+      </button>
+     </div>
+     <nav aria-label="账号分页" class="pagination" hidden="" id="accountPagination">
+      <button class="btn small" id="btnPrevPage">
+       上一页
+      </button>
+      <span aria-live="polite" id="pagePosition">
+       第 1 / 1 页
+      </span>
+      <button class="btn small" id="btnNextPage">
+       下一页
+      </button>
+     </nav>
+     <p aria-live="polite" class="plans-summary" id="plansSummary">
+      登录后自动查询会员类别、到期时间与窗口额度
+     </p>
+    </section>
+   </section>
+   <section aria-label="账号管理" data-view="manage" hidden id="manageView">
+    <section aria-labelledby="importTitle" class="import-panel" id="importPanel">
+     <div class="manage-heading">
+      <div><h2 id="importTitle">登录资料</h2><p>查看登录资料是否已配置，点击编辑修改具体内容。</p></div>
+      <span class="editor-count" id="draftCount">共 0 个账号</span>
+     </div>
+     <div class="manage-toolbar" id="editorControls">
+      <div class="editor-search-field">
+       <svg class="icon" aria-hidden="true"><use href="#i-search"/></svg>
+       <label class="sr-only" for="editorSearch">搜索管理中的邮箱或取件地址</label>
+       <input id="editorSearch" type="search" placeholder="搜索邮箱或取件地址" autocomplete="off" spellcheck="false">
+       <button type="button" id="btnClearEditorSearch" class="text-btn" aria-label="清空管理页搜索" hidden>×</button>
+      </div>
+      <label class="sr-only" for="editorFilter">筛选账号更改</label>
+      <select id="editorFilter"><option value="all">全部账号</option><option value="dirty">待保存的账号</option><option value="new">新增账号</option></select>
+      <div class="manage-toolbar-actions">
+       <button aria-controls="bulkImportPanel" aria-expanded="false" class="btn" id="btnBulkImport" type="button">批量导入</button>
+       <button class="btn primary" id="btnAddAccount" type="button"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>新增账号</button>
+      </div>
+     </div>
+     <div class="manage-context"><span id="editorResultCount">正在加载</span><span>每页 25 个 · 有／无仅表示资料是否存在</span></div>
+     <div class="bulk-import" hidden id="bulkImportPanel">
+      <div class="bulk-import-heading"><div><label for="accountsText">粘贴账号列表</label><p>每行 <code>邮箱----取件地址----2FA密钥</code>，2FA 可省略。同邮箱合并更新，其他账号保留。</p></div></div>
+      <textarea id="accountsText" placeholder="alice@example.com----https://mail.example.com/inbox/alice&#10;bob@example.com----https://mail.example.com/inbox/bob----BH4OWU3OMXPJ7P63" spellcheck="false"></textarea>
+      <div class="bulk-import-actions"><span>先导入到列表，检查后统一保存。</span><button class="text-btn" id="btnCancelBulk" type="button">取消导入</button><button class="btn small primary" id="btnParseImport" type="button">导入到列表</button></div>
+     </div>
+     <div class="editor-undo" hidden id="editorUndo"><span id="editorUndoText"></span><button class="text-btn" id="btnUndoRemove" type="button">撤销移除</button></div>
+     <p class="field-error" hidden id="importError" role="alert" tabindex="-1"></p>
+     <form id="accountsForm" novalidate>
+      <div class="manager-table-wrap" id="managerTableWrap">
+       <table class="account-manager-table">
+        <caption class="sr-only">账号登录资料是否已配置</caption>
+        <colgroup><col class="manager-col-email"><col class="manager-col-param"><col class="manager-col-param"><col class="manager-col-param"><col class="manager-col-actions"></colgroup>
+        <thead><tr><th scope="col">邮箱</th><th scope="col">取件地址</th><th scope="col">密码</th><th scope="col">2FA 密钥</th><th scope="col">操作</th></tr></thead>
+        <tbody id="accountEditorRows"></tbody>
+       </table>
+      </div>
+      <div class="editor-empty" hidden id="editorEmpty"><h3 id="editorEmptyTitle">添加你的第一个账号</h3><p id="editorEmptyText">新增账号或批量导入后即可编辑。</p><button id="btnResetEditorFilters" class="btn small" type="button">显示全部账号</button></div>
+     </form>
+     <nav class="editor-pagination" id="editorPagination" aria-label="账号管理分页" hidden><button class="btn small" id="btnEditorPrev" type="button">上一页</button><span id="editorPagePosition" aria-live="polite">第 1 / 1 页</span><button class="btn small" id="btnEditorNext" type="button">下一页</button></nav>
+     <div class="editor-savebar">
+      <div class="editor-save-state"><strong id="draftState" role="status">全部更改已保存</strong><span id="editHint">密码与密钥留空保留。</span></div>
+      <div class="editor-actions"><button class="text-btn" id="btnDiscardEditor" type="button" hidden>撤销全部更改</button><button class="btn" id="btnCancelImport" type="button">返回概览</button><button class="btn primary" form="accountsForm" id="btnSaveImport" type="submit">保存全部更改</button></div>
+     </div>
+    </section>
+   </section>
+   <section aria-label="任务队列" data-view="tasks" hidden="" id="tasksView">
+    <div class="task-summary">
+     <div>
+      <span>
+       正在执行
+      </span>
+      <strong id="runningTaskCount">
+       0
+      </strong>
+     </div>
+     <div>
+      <span>
+       等待中
+      </span>
+      <strong id="waitingTaskCount">
+       0
+      </strong>
+     </div>
+     <div>
+      <span>
+       本次有记录
+      </span>
+      <strong id="taskRecordCount">
+       0
+      </strong>
+     </div>
+    </div>
+    <div class="queue-bar">
+     <div class="queue-label">
+      <span class="status-dot" id="queueDot">
+      </span>
+      <span id="queueText">
+       队列空闲
+      </span>
+      <span class="queue-count" hidden="" id="queueCount">
+      </span>
+     </div>
+     <button class="text-btn" hidden="" id="btnClearQueue" title="移除等待任务，当前账号会继续完成">
+      清空等待队列
+     </button>
+    </div>
+    <div class="task-layout">
+     <section class="task-section current-section">
+      <div class="section-head">
+       <h2>
+        当前任务
+       </h2>
+      </div>
+      <div id="currentTasks">
+      </div>
+     </section>
+     <section class="task-section waiting-section">
+      <div class="section-head">
+       <h2>
+        等待队列
+       </h2>
+      </div>
+      <div id="waitingTasks">
+      </div>
+     </section>
+    </div>
+    <section class="task-section history-section">
+     <div class="section-head">
+      <div>
+       <h2>
+        本次运行记录
+       </h2>
+       <p>
+        展开账号查看完整日志。服务重启后记录会清空。
+       </p>
+      </div>
+     </div>
+     <div id="taskRecords">
+     </div>
+    </section>
+   </section>
+   <section aria-label="全局设置" data-view="settings" hidden="" id="settingsView">
+    <section class="settings-card">
+     <h2>任务并发</h2>
+     <form class="settings-form" id="threadPoolForm">
+      <label for="threadPoolSize">线程池数量</label>
+      <input id="threadPoolSize" type="number" min="1" max="10" step="1" value="1" required aria-describedby="threadPoolHint">
+      <p id="threadPoolHint">同时处理的账号任务数量（1–10），默认 1。其余任务排队等待，不限制本次提交总数。请在队列空闲时保存；数量越大，浏览器资源占用越高。</p>
+      <button class="btn primary" type="submit" id="btnThreadPoolSave">保存线程池数量</button>
+     </form>
+    </section>
+    <div class="settings-section-intro">
+     <span class="section-index">
+      网络
+     </span>
+     <p>
+      配置所有账号任务使用的网络连接。
+     </p>
+    </div>
+    <section class="settings-card" id="proxyPanel">
+     <div class="settings-card-heading">
+      <h2>
+       全局代理
+      </h2>
+      <span id="proxyStatus">
+       正在读取
+      </span>
+     </div>
+     <form class="settings-form" id="proxyForm" novalidate="">
+      <p class="proxy-description">
+       统一用于所有账号的登录、取件、密码与 2FA 操作、套餐查询。保存后从下一个账号任务生效。
+      </p>
+      <label class="proxy-toggle">
+       <input disabled="" id="proxyEnabled" type="checkbox"/>
+       启用全局代理
+      </label>
+      <fieldset class="proxy-fields" disabled="" id="proxyFields">
+       <legend class="sr-only">
+        代理连接信息
+       </legend>
+       <label class="proxy-server" for="proxyServer">
+        代理地址
+        <input autocomplete="off" id="proxyServer" placeholder="http://127.0.0.1:7890" spellcheck="false" type="text"/>
+        <span>
+         支持 IP:端口、HTTP、HTTPS、SOCKS5；SOCKS5 使用无认证代理。
+        </span>
+       </label>
+       <label for="proxyUsername">
+        认证账号 · 可选
+        <input autocomplete="off" id="proxyUsername" placeholder="无认证时留空" spellcheck="false" type="text"/>
+       </label>
+       <label for="proxyPassword">
+        认证密码 · 可选
+        <input autocomplete="new-password" id="proxyPassword" placeholder="无认证时留空" type="password"/>
+        <span>
+         留空仅保留同一代理、同一账号的已存密码。
+        </span>
+       </label>
+       <label class="proxy-clear" for="proxyClearPassword">
+        <input id="proxyClearPassword" type="checkbox"/>
+        清除已保存的代理密码
+       </label>
+      </fieldset>
+      <p class="field-error" hidden="" id="proxyError" role="alert">
+      </p>
+      <p class="proxy-result" hidden="" id="proxyResult" role="status">
+      </p>
+      <div class="editor-footer">
+       <span id="proxyHint">
+        检测出口 IP 使用当前表单配置，检测成功后仍需保存。
+       </span>
+       <div class="editor-actions">
+        <button class="btn" disabled="" id="btnProxyReset" type="button">
+         撤销更改
+        </button>
+        <button class="btn" disabled="" id="btnProxyTest" type="button">
+         检测出口 IP
+        </button>
+        <button class="btn primary" disabled="" id="btnProxySave" type="submit">
+         保存代理
+        </button>
+       </div>
+      </div>
+     </form>
+    </section>
+    <section class="settings-card appearance-card">
+     <div>
+      <h2>
+       界面外观
+      </h2>
+      <p>
+       选择浅色、深色，或跟随系统。
+      </p>
+     </div>
+     <label class="sr-only" for="themeSelect">
+      界面外观
+     </label>
+     <select class="theme-select" id="themeSelect">
+      <option value="auto">
+       跟随系统
+      </option>
+      <option value="light">
+       浅色外观
+      </option>
+      <option value="dark">
+       深色外观
+      </option>
+     </select>
+    </section>
+    <p class="settings-footnote">
+     运行方式：
+     <span id="modeText">
+      后台登录
+     </span>
+     · 会话与登录资料保存在本机。
+    </p>
+   </section>
+   <footer class="page-footer">
+    <span>
+     <span aria-hidden="true" class="footer-dot">
+     </span>
+     会话仅保存在本机
+    </span>
+    <span id="updatedAt">
+     等待同步
+    </span>
+   </footer>
+  </main>
+  <div aria-atomic="true" aria-live="polite" class="toast" hidden="" id="toast" role="status">
+   <span class="toast-mark" id="toastMark">
+    ✓
+   </span>
+   <span id="toastText">
+   </span>
+   <button aria-label="关闭提示" id="btnCloseToast">
+    ×
+   </button>
+  </div>
+  <dialog aria-labelledby="accountActionTitle" aria-describedby="accountActionEmail accountActionDescription" class="account-action-dialog" id="accountActionDialog">
+   <form id="accountActionForm">
+    <h2 id="accountActionTitle"></h2>
+    <p class="account-action-email" id="accountActionEmail"></p>
+    <p class="account-action-description" id="accountActionDescription"></p>
+    <p class="account-action-notice" id="accountActionNotice" hidden="" role="status"></p>
+    <p class="field-error" id="accountActionError" hidden="" role="alert"></p>
+    <footer>
+     <button autofocus="" type="button" class="btn" id="btnCancelAccountAction">取消</button>
+     <button type="submit" class="btn danger" id="btnConfirmAccountAction">确认</button>
+    </footer>
+   </form>
+  </dialog>
+  <dialog aria-labelledby="accountDetailsTitle" class="account-details-dialog" id="accountDetails">
+   <header class="detail-heading">
+    <div>
+     <span class="detail-eyebrow">
+      账号详情
+     </span>
+     <h2 id="accountDetailsTitle">
+     </h2>
+     <p id="accountDetailsStatus">
+     </p>
+    </div>
+    <button aria-label="关闭账号详情" autofocus="" class="icon-btn" id="btnCloseAccountDetails">
+     <svg class="icon">
+      <use href="#i-close">
+      </use>
+     </svg>
+    </button>
+   </header>
+   <div class="detail-actions">
+    <button class="btn small" data-act="login" id="detailLogin">
+     重新登录
+    </button>
+    <button class="btn small" data-act="refresh-plan" id="detailRefreshPlan">
+     刷新会员与额度
+    </button>
+    <button class="btn small" data-act="copy-logs" hidden="" id="detailCopyLogs">
+     复制日志
+    </button>
+   </div>
+   <div aria-label="详情内容" class="detail-tabs" role="tablist">
+    <button aria-controls="accountDetailsBody" aria-selected="true" data-detail-tab="plan" id="detailPlanTab" role="tab">
+     会员与额度
+    </button>
+    <button aria-controls="accountDetailsBody" aria-selected="false" data-detail-tab="logs" id="detailLogsTab" role="tab" tabindex="-1">
+     运行日志
+    </button>
+   </div>
+   <div aria-labelledby="detailPlanTab" class="detail-body" id="accountDetailsBody" role="tabpanel">
+   </div>
+  </dialog>
+  <dialog aria-describedby="quickAccountDescription" aria-labelledby="quickAccountTitle" class="quick-account-dialog" id="quickAccountDialog">
+   <form class="quick-account-form" id="quickAccountForm">
+    <header class="quick-account-heading">
+     <div>
+      <h2 id="quickAccountTitle">
+       编辑登录资料
+      </h2>
+      <p id="quickAccountDescription">
+       编辑当前账号，保存后继续操作。
+      </p>
+     </div>
+     <button aria-label="关闭编辑" class="icon-btn" id="btnCloseQuickAccount" type="button">
+      <svg aria-hidden="true" class="icon">
+       <use href="#i-close">
+       </use>
+      </svg>
+     </button>
+    </header>
+    <div class="quick-account-body">
+     <fieldset class="quick-account-fields" id="quickAccountFields">
+      <label for="quickAccountEmail">
+       <span>
+        账号邮箱
+       </span>
+       <input autocomplete="off" id="quickAccountEmail" readonly="" spellcheck="false" type="email"/>
+       <small id="quickAccountEmailHint">
+        需更改邮箱时，请前往账号管理。
+       </small>
+      </label>
+      <label for="quickAccountMailUrl">
+       <span>
+        取件地址
+       </span>
+       <input autocomplete="off" autofocus="" id="quickAccountMailUrl" placeholder="https://mail.example.com/inbox" spellcheck="false" type="url"/>
+      </label>
+      <label for="quickAccountPassword">
+       <span>
+        当前密码
+        <small>
+         可选
+        </small>
+       </span>
+       <input autocomplete="new-password" id="quickAccountPassword" spellcheck="false" type="password"/>
+       <small>
+        留空保留已保存的密码。
+       </small>
+      </label>
+      <label for="quickAccountTwofa">
+       <span>
+        当前 2FA 密钥
+        <small>
+         可选
+        </small>
+       </span>
+       <input autocomplete="new-password" id="quickAccountTwofa" spellcheck="false" type="password"/>
+       <small>
+        填写 Base32 密钥，留空保留已保存的密钥。
+       </small>
+      </label>
+     </fieldset>
+     <div class="quick-account-method">
+      <span>
+       将使用的登录方式
+      </span>
+      <strong aria-live="polite" id="quickAccountLoginMethod">
+      </strong>
+     </div>
+     <p class="field-error" hidden="" id="quickAccountError" role="alert" tabindex="-1">
+     </p>
+    </div>
+    <footer class="quick-account-footer">
+     <p aria-live="polite" id="quickAccountStatus">
+     </p>
+     <div>
+      <button class="btn" id="btnCancelQuickAccount" type="button">
+       取消
+      </button>
+      <button class="btn primary" id="btnSaveQuickAccount" type="submit">
+       保存账号
+      </button>
+     </div>
+    </footer>
+   </form>
+  </dialog>
+ </body>
+</html>

@@ -1,0 +1,24 @@
+{
+  "name": "chatgpt-login",
+  "version": "1.0.0",
+  "description": "批量自动登录 ChatGPT，抓取 accessToken，可视化面板管理",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "start:headed": "HEADLESS_OVERRIDE=0 node src/index.js",
+    "reset": "rm -f info.json profiles/*.json && echo '已清空 token 库和会话缓存'",
+    "test": "node --test test/*.test.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "playwright": "^1.64.0",
+    "playwright-extra": "^4.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

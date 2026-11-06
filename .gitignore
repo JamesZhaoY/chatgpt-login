@@ -1,0 +1,18 @@
+node_modules/
+info.json
+passwords.json
+twofa.json
+plans.json
+proxy.json
+profiles/
+accounts.txt
+account-flags.json
+config.json
+*-backup-*/
+before-*-restore-*/
+.playwright-cli/
+.DS_Store
+*.log
+
+# 启动脚本日志
+logs/
