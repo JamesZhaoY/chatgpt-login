@@ -37,7 +37,8 @@ export function accountHTML(account) {
   const sessionValid = usable({ ...account, unavailable: false });
   const password = account.password || {};
   const twofa = account.twofa || {};
-  const accountError = account.error || password.error || twofa.error;
+  // 密码或 2FA 的历史操作错误独立保留在详情中，不能当作当前登录错误。
+  const accountError = account.error;
   const canAuthenticate = password.saved || password.uncertain || Boolean(account.mailUrl);
   const stateLabel = account.operation?.startsWith('setup') && ['running', 'fail'].includes(state) ? (state === 'running' ? '初始化中' : '初始化未完成') : account.operation === 'plan' && state === 'running' ? '获取套餐中' : account.operation?.startsWith('twofa') && ['running', 'fail'].includes(state)
     ? (state === 'running' ? (account.operation === 'twofa-verify' ? '验证 2FA 中' : '绑定 2FA 中') : '2FA 任务失败')
@@ -53,6 +54,8 @@ export function accountHTML(account) {
         <summary class="btn small" data-act="menu" aria-label="${email} 的操作">更多${icon('chevron')}</summary>
         <div class="action-dropdown" aria-label="${email} 的账号操作">
           <div class="menu-group"><span class="dropdown-label">账号与套餐</span>
+            <button data-act="official-setup" ${!app.connected || active(account) ? 'disabled' : ''}>在单窗口手动初始化</button>
+            <button data-act="logout-devices" ${!app.connected || active(account) ? 'disabled' : ''}>前往官网退出所有设备</button>
             <button data-act="edit">${icon('edit')}编辑账号</button>
             <button data-act="login" ${!actionable(account) || !app.connected ? 'disabled' : disabled('login')}>${icon('refresh')}${hasToken ? '重新登录' : '登录'}</button>
             <button data-act="refresh-plan" ${!actionable(account) || !app.connected ? 'disabled' : disabled('refresh-plan')}>${icon('refresh')}刷新会员与额度</button>
@@ -70,7 +73,7 @@ export function accountHTML(account) {
       <button class="action-btn" data-act="copy-password" ${password.saved ? '' : 'disabled'}>${icon('copy')}复制密码</button>
       ${password.saved || password.uncertain ? `<button class="action-btn" data-act="verify-password" ${!actionable(account) || !app.connected ? 'disabled' : disabled('verify-password')}>${icon('refresh')}验证密码登录</button>` : ''}
       ${password.uncertain ? `<button class="action-btn" data-act="copy-pending-password">${icon('copy')}复制待确认密码</button>` : ''}
-      ${!twofa.hasSecret && !twofa.hasImportedSecret ? `<button class="action-btn" data-act="init-twofa" title="绑定 Google Authenticator 兼容验证器，保存手动密钥并验证登录" ${!actionable(account) || !app.connected || !canAuthenticate ? 'disabled' : disabled('init-twofa')}>${icon('key')}启用 2FA</button>` : `
+      ${!twofa.hasSecret && !twofa.hasImportedSecret || twofa.canResumeSetup || twofa.setupNeedsCheck ? `<button class="action-btn" data-act="${twofa.setupNeedsCheck ? 'check-twofa' : 'init-twofa'}" title="绑定 Google Authenticator 兼容验证器，保存手动密钥并验证登录" ${!actionable(account) || !app.connected || !canAuthenticate ? 'disabled' : disabled('init-twofa')}>${icon('key')}${twofa.setupNeedsCheck ? '核对 2FA 绑定结果' : twofa.canResumeSetup ? '继续启用 2FA' : '启用 2FA'}</button>` : `
         <button class="action-btn" data-act="replace-twofa" title="到官网关闭旧验证器、绑定新密钥，并验证新密钥登录" ${!actionable(account) || !app.connected || !canAuthenticate ? 'disabled' : disabled('replace-twofa')}>${icon('key')}${twofa.rotating ? '继续修改 2FA' : '修改 2FA'}</button>
         <button class="action-btn" data-act="copy-twofa">${icon('copy')}复制 2FA 密钥</button>
         <button class="action-btn" data-act="copy-totp">${icon('copy')}复制验证码</button>
@@ -108,17 +111,13 @@ export function renderAccounts() {
   const ready = app.accounts.filter(usable).length;
   const processing = app.accounts.filter(active).length;
   const needsWork = app.accounts.filter(attention).length;
-  const failed = app.accounts.filter(account => account.status === 'fail').length;
-  const expired = app.accounts.filter(account => status(account) === 'expired').length;
-  const passwordIssues = app.accounts.filter(account => account.password?.error || account.password?.uncertain).length;
-  const twofaIssues = app.accounts.filter(account => account.twofa?.error || account.twofa?.pending).length;
   const planIssues = app.accounts.filter(account => account.plan?.error).length;
   const partialPlans = app.accounts.filter(account => account.plan?.missingSections?.some(item => item.section === 'usage') && !account.plan?.error).length;
   for (const [name, count] of Object.entries({ Total: app.accounts.length, Ready: ready, Active: processing, Attention: needsWork })) $('#count' + name).textContent = app.loaded ? count : '—';
   for (const [name, count] of Object.entries({ All: app.accounts.length, Ready: ready, Active: processing, Attention: needsWork })) $('#filter' + name).textContent = count;
   $('#filterUnavailable').textContent = app.accounts.filter(account => account.unavailable).length;
   $('#activeNote').textContent = processing ? `运行 ${app.worker.inFlight.length} · 等待 ${app.worker.queue.length}` : '运行与等待的任务';
-  $('#attentionNote').textContent = planIssues ? `套餐查询失败 ${planIssues} · 过期 ${expired}` : twofaIssues ? `2FA 待处理 ${twofaIssues} · 过期 ${expired}` : passwordIssues ? `密码待处理 ${passwordIssues} · 过期 ${expired}` : failed || expired ? `失败 ${failed} · 过期 ${expired}` : '未登录、失败与过期';
+  $('#attentionNote').textContent = '会话缺失或已过期';
   const planCounts = new Map();
   for (const account of app.accounts) if (account.plan?.fetchedAt) planCounts.set(account.plan.planName, (planCounts.get(account.plan.planName) || 0) + 1);
   const fetchedPlans = app.accounts.filter(account => account.plan?.fetchedAt).length;
@@ -224,6 +223,16 @@ export function initAccounts({ refresh }) {
       return;
     }
     perform(button, async () => {
+      if (action === 'official-setup' || action === 'logout-devices') {
+        const logout = action === 'logout-devices';
+        const message = logout
+          ? `目标账号：${account.email}。请在官网核对邮箱后，进入活动会话并确认退出所有设备。`
+          : `目标邮箱：${account.email}。在同一官网窗口完成注册和资料填写，再进入设置 → 安全性，设置密码并绑定 Google Authenticator。`;
+        if (!window.confirm(message)) return;
+        await api('/api/account-window', { method: 'POST', body: JSON.stringify({ email: account.email, action: logout ? 'logout-devices' : 'setup' }) });
+        toast(logout ? '已打开官网安全设置，请在官网确认退出' : '已打开账号专用窗口');
+        return;
+      }
       if (action === 'edit') await showEditor(account.email, trigger);
       if (action === 'setup') await queueSetup([account.email]);
       if (action === 'login') await queueEmails([account.email]);
@@ -237,10 +246,10 @@ export function initAccounts({ refresh }) {
         const result = await api('/api/password/verify', { method: 'POST', body: JSON.stringify({ email: account.email }) });
         toast(result.queued ? '已加入密码登录验证任务' : '该账号已有任务正在执行');
       }
-      if (['init-twofa', 'verify-twofa', 'replace-twofa'].includes(action)) {
-        const route = { 'init-twofa': 'init', 'verify-twofa': 'verify', 'replace-twofa': 'replace' }[action];
+      if (['init-twofa', 'check-twofa', 'verify-twofa', 'replace-twofa'].includes(action)) {
+        const route = { 'init-twofa': 'init', 'check-twofa': 'check', 'verify-twofa': 'verify', 'replace-twofa': 'replace' }[action];
         const result = await api(`/api/twofa/${route}`, { method: 'POST', body: JSON.stringify({ email: account.email }) });
-        toast(result.queued ? (action === 'replace-twofa' ? '官网 2FA 更换已加入队列，完成后将验证新密钥登录' : action === 'init-twofa' ? '2FA 绑定任务已加入队列' : '2FA 登录验证已加入队列') : '该账号已有任务正在执行');
+        toast(result.queued ? (action === 'check-twofa' ? '已安排核对官网验证器状态' : action === 'replace-twofa' ? '官网 2FA 更换已加入队列，完成后将验证新密钥登录' : action === 'init-twofa' ? '2FA 绑定任务已加入队列' : '2FA 登录验证已加入队列') : '该账号已有任务正在执行');
       }
       if (['copy-twofa', 'copy-totp', 'copy-pending-twofa'].includes(action)) {
         const data = await api(`/api/twofa?email=${encodeURIComponent(account.email)}${action === 'copy-pending-twofa' ? '&pending=1' : ''}`);

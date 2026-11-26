@@ -35,9 +35,13 @@ export function renderAccountDetails() {
   }
   const body = $('#accountDetailsBody');
   body.setAttribute('aria-labelledby', app.detailsTab === 'logs' ? 'detailLogsTab' : 'detailPlanTab');
-  const error = account.error || account.password?.error || account.twofa?.error;
+  const errors = [
+    account.error && `当前任务：${account.error}`,
+    account.password?.error && `上次密码操作：${account.password.error}`,
+    account.twofa?.error && `上次 2FA 操作：${account.twofa.error}`,
+  ].filter(Boolean);
   const logs = account.logs || [];
-  const html = app.detailsTab === 'plan' ? planHTML(account, true) : `${error ? `<p class="detail-error">${esc(error)}</p>` : ''}
+  const html = app.detailsTab === 'plan' ? planHTML(account, true) : `${errors.map(error => `<p class="detail-error">${esc(error)}</p>`).join('')}
     <p class="detail-log-count">${logs.length} 行运行日志 · 自动更新</p>
     ${logs.length ? `<div class="log-output" tabindex="0" aria-label="账号运行日志">${logs.map(line => `<div class="log-line ${logClass(line)}">${esc(line)}</div>`).join('')}</div>` : '<p class="log-empty">还没有运行日志。启动账号任务后可在这里查看进度。</p>'}`;
   if (body._html === html) return;

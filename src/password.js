@@ -117,23 +117,45 @@ async function completeTotpChallenge({ page, otp, totpSecret, signal, log, alrea
 
 async function verifyPasswordLogin({ page, context, email, password, mail, signal, log, totpSecret, requireTotp = false }) {
   signal.throwIfAborted();
-  log(`正在验证密码登录，使用密码：${password}`);
+  log('正在验证密码登录');
   // 调用方必须提供全新 context，不能把旧 cookie 当成密码验证成功。
-  await page.goto('https://chatgpt.com/auth/login_with?callback_path=/', { waitUntil: 'domcontentloaded' });
-  const emailField = page.locator('input[type="email"]:visible, input[name="email"]:visible, input[name="login_hint"]:visible').first();
-  await emailField.waitFor({ state: 'visible', timeout: 45000 });
+  const emailField = page.locator('input[type="email"]:visible, input[name="email"]:visible, input[name="login_hint"]:visible, input[autocomplete="username"]:visible').first();
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    signal.throwIfAborted();
+    await page.goto('https://chatgpt.com/auth/login_with?callback_path=/', { waitUntil: 'domcontentloaded' });
+    try { await emailField.waitFor({ state: 'visible', timeout: 45000 }); break; }
+    catch (error) {
+      signal.throwIfAborted();
+      if (!/timeout/i.test(error.message)) throw error;
+      if (attempt === 2) throw new Error('登录页邮箱输入框未出现，请检查页面加载情况或是否需要人工验证');
+      log('登录页邮箱输入框未出现，重新打开登录页');
+    }
+  }
   assertTrustedPage(page);
   await emailField.fill(email);
   await submitButton(page);
+  log('已提交邮箱，等待密码登录入口');
   const passwordField = page.locator('input[type="password"]:visible').first();
-  const usePassword = page.getByRole('link', { name: /^(Continue with password|Use password|使用密码|使用密码继续)$/i })
-    .or(page.getByRole('button', { name: /^(Continue with password|Use password|使用密码|使用密码继续)$/i })).first();
-  await passwordField.or(usePassword).first().waitFor({ state: 'visible', timeout: 45000 });
+  const passwordLabel = /(?:continue|log\s*in|sign\s*in|use).*password|password.*(?:instead|continue)|使用密码|密码登录/i;
+  const usePassword = page.getByRole('link', { name: passwordLabel })
+    .or(page.getByRole('button', { name: passwordLabel }))
+    .or(page.locator('a[href^="/log-in/password"], a[href^="https://auth.openai.com/log-in/password"]')).first();
+  try { await passwordField.or(usePassword).first().waitFor({ state: 'visible', timeout: 45000 }); }
+  catch (error) {
+    signal.throwIfAborted();
+    if (!/timeout/i.test(error.message)) throw error;
+    throw new Error('提交邮箱后未找到密码登录入口，请检查登录页面是否要求其他验证');
+  }
   if (!await passwordField.isVisible()) {
     assertTrustedPage(page);
     await usePassword.click();
   }
-  await passwordField.waitFor({ state: 'visible', timeout: 20000 });
+  try { await passwordField.waitFor({ state: 'visible', timeout: 20000 }); }
+  catch (error) {
+    signal.throwIfAborted();
+    if (!/timeout/i.test(error.message)) throw error;
+    throw new Error('已选择密码登录，但密码输入框未出现');
+  }
   // 密码登录可能只要求验证器验证码；不要在确认需要邮箱验证码前访问取件服务。
   // 真正需要邮件时，fetchCode 仍会按提交时间过滤旧邮件。
   const mailOptions = { ...mail, signal };
@@ -287,7 +309,7 @@ async function initializePassword({ page, context, email, currentPassword, mail,
     signal.throwIfAborted();
     // 先持久化候选值。即使提交后网络断开或进程退出，也能找回候选密码。
     store.preparePassword(email, password);
-    log(`本次 ${PASSWORD_LENGTH} 位随机密码：${password}`);
+    log(`已生成并保存 ${PASSWORD_LENGTH} 位候选密码`);
     store.recordPassword(email, { submittedAt: new Date().toISOString() });
     await submitButton(page);
 
@@ -298,7 +320,7 @@ async function initializePassword({ page, context, email, currentPassword, mail,
       signal.throwIfAborted();
       store.confirmPassword(email);
       store.recordPassword(email, { verifiedAt: new Date().toISOString() });
-      log(`✓ 密码修改及登录验证成功，密码：${password}`);
+      log('✓ 密码修改及登录验证成功');
     };
     const resultDeadline = Date.now() + 30000;
     while (Date.now() < resultDeadline) {

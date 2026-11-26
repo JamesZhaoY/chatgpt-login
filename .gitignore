@@ -10,6 +10,7 @@ account-flags.json
 config.json
 *-backup-*/
 before-*-restore-*/
+before-icloud-sync-*/
 .playwright-cli/
 .DS_Store
 *.log

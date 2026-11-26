@@ -35,7 +35,7 @@ class LoginWorker {
   }
 
   enqueue(emails, operation = 'login') {
-    if (!['login', 'password', 'password-verify', 'twofa', 'twofa-verify', 'twofa-replace', 'plan', 'setup', 'setup-password', 'setup-twofa'].includes(operation)) throw new Error('未知任务类型');
+    if (!['login', 'password', 'password-verify', 'twofa', 'twofa-verify', 'twofa-check', 'twofa-replace', 'plan', 'setup', 'setup-password', 'setup-twofa'].includes(operation)) throw new Error('未知任务类型');
     if (this.stopping) throw Object.assign(new Error('服务正在关闭'), { status: 503 });
     const queued = [];
     emails.forEach(email => {
@@ -47,7 +47,7 @@ class LoginWorker {
       if (operation === 'password' && this.store.passwordSummary(email).uncertain) return;
       if (operation.startsWith('setup') && this.setupComplete(email, operation)) return;
       this.operations.set(email, operation);
-      const labels = { password: '密码初始化排队中', 'password-verify': '密码登录验证排队中', twofa: '2FA 绑定排队中', 'twofa-verify': '2FA 登录验证排队中', plan: '套餐信息读取排队中', setup: '密码与 2FA 初始化排队中', 'setup-password': '初始化密码排队中', 'setup-twofa': '开通 2FA 排队中' };
+      const labels = { password: '密码初始化排队中', 'password-verify': '密码登录验证排队中', twofa: '2FA 绑定排队中', 'twofa-check': '核对绑定结果排队中', 'twofa-verify': '2FA 登录验证排队中', plan: '套餐信息读取排队中', setup: '密码与 2FA 初始化排队中', 'setup-password': '初始化密码排队中', 'setup-twofa': '开通 2FA 排队中' };
       this.store.setStatus(email, 'pending', { stage: operation === 'twofa-replace' ? '更换官网 2FA 排队中' : labels[operation] || '排队中', error: null, operation });
       this.queue.push(email);
       queued.push(email);
@@ -94,11 +94,12 @@ class LoginWorker {
         await (operation === 'password' ? this._initializePassword(email, task)
         : operation === 'password-verify' ? this._verifyPassword(email, task)
         : operation === 'twofa' ? this._initializeTwofa(email, task)
+        : operation === 'twofa-check' ? this._initializeTwofa(email, task, false, true)
         : operation === 'twofa-replace' ? this._replaceTwofa(email, task)
         : operation === 'twofa-verify' ? this._verifyTwofa(email, task)
         : operation.startsWith('setup') ? this._setupAccount(email, task, operation)
         : operation === 'plan' ? this._fetchPlan(email, task) : this._loginOne(email, task));
-        if (operation === 'plan' || !task.session) return;
+        if (operation === 'plan' || operation === 'twofa-check' || !task.session) return;
         // 多步初始化只在最终验证成功后查询一次；查询错误不能覆盖登录/改密结果。
         const acc = this.store.getAccount(email);
         completed = { status: acc.status, stage: acc.stage, operation: null, error: acc.error };
@@ -302,7 +303,7 @@ class LoginWorker {
         if (this.store.getPassword(email, true) === password) this.store.confirmPassword(email);
         this.store.recordPassword(email, { verifiedAt: new Date().toISOString(), error: null });
         this.store.setStatus(email, 'ok', { info, stage: '密码登录验证成功', operation: null, error: null });
-        log(`✓ 密码登录验证成功，密码：${password}`);
+        log('✓ 密码登录验证成功');
       } else if (password === this.store.getPassword(email)) this.store.recordPassword(email, { verifiedAt: new Date().toISOString(), error: null });
       task.session = { email, context, page };
       return info;
@@ -337,12 +338,16 @@ class LoginWorker {
     return this._initializeTwofa(email, task, true);
   }
 
-  async _initializeTwofa(email, task, replace = false) {
+  async _initializeTwofa(email, task, replace = false, checkOnly = false) {
     if (replace && !this.store.getTwofaSecret(email)) throw new Error('请先保存当前的 2FA 密钥');
-    if (!replace && this.store.getTwofaSecret(email)) throw new Error('已有 2FA 密钥，请先使用验证 2FA 登录');
+    if (!replace && this.store.getTwofaSecret(email) && !this.store.twofaSummary(email).canResumeSetup && !checkOnly) throw new Error('已有 2FA 密钥，请先使用验证 2FA 登录');
     if (!this.store.getPassword(email) && !this.store.getPassword(email, true) && !this.store.getAccount(email).mailUrl && !this.config.mail.url) throw new Error('请先填写当前密码或取件地址，再设置并验证 2FA');
     const resuming = replace && this.store.twofaSummary(email).rotating;
-    await this._loginOne(email, task);
+    const existing = this.store.getAccount(email);
+    if (!replace && !task.session && (existing.mailUrl || this.config.mail.url) && this.store.infoStatus(existing.info) === 'ok' && fs.existsSync(this.store.profilePath(email))) {
+      // 绑定前可复用已保存的会话，_loginWithEmail 会重新核对官网会话邮箱；最终仍需新登录验证 2FA。
+      await this._loginWithEmail(email, task);
+    } else await this._loginOne(email, task);
     task.signal.throwIfAborted();
     if (resuming && !this.store.twofaSummary(email).rotating) return;
     const acc = this.store.getAccount(email);
@@ -350,13 +355,17 @@ class LoginWorker {
     if (session.user?.email?.toLowerCase() !== email.toLowerCase()) throw new Error('会话邮箱与所选账号不一致');
     const { context, page } = task.session;
     try {
-      await enableTwofa({
-        page, context, email, store: this.store, signal: task.signal, replace,
+      const result = await enableTwofa({
+        page, context, email, store: this.store, signal: task.signal, replace, checkOnly,
         mail: { ...this.config.mail, url: acc.mailUrl || this.config.mail.url },
         log: message => { if (!task.signal.aborted) this.store.log(email, message); },
         stage: text => { task.signal.throwIfAborted(); this.store.setStatus(email, 'running', { stage: text, operation: replace ? 'twofa-replace' : 'twofa', error: null }); },
         verifyLogin: () => this._verifyTwofa(email, task),
       });
+      if (checkOnly) {
+        this.store.log(email, result);
+        this.store.setStatus(email, this.store.infoStatus(acc.info), { stage: result, operation: null, error: null });
+      }
     } finally {
       await this._releaseContext(context, task);
     }

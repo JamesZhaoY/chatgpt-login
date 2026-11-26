@@ -23,7 +23,7 @@ export const usable = account => {
   return Boolean(!account.unavailable && account.info?.accessToken && (!expires || Date.parse(expires) > Date.now()));
 };
 export const status = account => account.unavailable ? 'disabled' : account.status === 'ok' && !usable(account) ? 'expired' : (STATUS_TEXT[account.status] ? account.status : 'idle');
-export const attention = account => !account.unavailable && !active(account) && (!usable(account) || account.status === 'fail' || account.password?.error || account.password?.uncertain || account.twofa?.error || account.twofa?.pending || account.plan?.error);
+export const attention = account => !account.unavailable && !active(account) && !usable(account);
 export const actionable = account => !account.unavailable && !active(account);
 export const setupComplete = (account, mode = 'all') => {
   const password = account.password || {};

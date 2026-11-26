@@ -133,7 +133,7 @@ test('2FA 更换保留旧值和待确认值，迁移导入列，重启后确认�
 });
 
 // 可见页面状态模型：确认关闭 → 旧 TOTP → 关闭 → 新密钥 → 官网启用。
-function securityPage(store, { fail = '', on = true } = {}) {
+function securityPage(store, { fail = '', on = true, keyVisible = false, intro = false, keyButton = false, codeOnNextPage = false } = {}) {
   let checked = on;
   let view = 'settings';
   const history = [];
@@ -146,13 +146,13 @@ function securityPage(store, { fail = '', on = true } = {}) {
       : loc(role === 'switch' ? 'toggle' : role === 'dialog' || role === 'alertdialog' ? 'modal' : options.name?.test('Not now') ? 'backup' : 'submit'),
     locator: selector => loc(selector === 'body' ? 'body' : selector.startsWith('button') ? 'submit' : selector.includes('type="password"') ? 'password' : 'otp'),
   };
-  const visible = kind => kind === 'toggle' ? view === 'settings' : kind === 'modal' ? ['confirm', 'identity', 'binding'].includes(view)
-    : kind === 'confirm' || kind === 'binding' ? kind === view : kind === 'otp' ? ['identity', 'binding'].includes(view) : false;
+  const visible = kind => kind === 'new-code' ? view === 'code-entry' || (view === 'binding' && !codeOnNextPage) : kind === 'intro' || kind === 'intro-continue' ? view === 'intro' : kind === 'key' ? keyVisible && view === 'binding' : kind === 'toggle' ? view === 'settings' : kind === 'modal' ? ['confirm', 'identity', 'binding', 'intro', 'code-entry'].includes(view)
+    : kind === 'binding' ? view === 'binding' || (intro && view === 'intro') : kind === 'confirm' ? kind === view : kind === 'otp' ? ['identity', 'binding'].includes(view) : false;
   function loc(kind) {
     return {
-      first() { return this; }, last() { return this; }, or() { return this; },
-      filter({ has }) { return loc(has.heading.test('Connect your authenticator app') ? 'binding' : 'confirm'); },
-      getByRole(role, { name }) { return loc(name.test("Can't scan? Enter key manually") ? 'manual' : kind === 'binding' ? name.test('Verify') ? 'bind' : 'new-code' : 'confirm-disable'); },
+      first() { return this; }, last() { return kind === 'modal' && ['binding', 'code-entry'].includes(view) ? loc('binding') : this; }, or() { return this; },
+      filter({ has }) { return loc(has.heading.test('Set up an authenticator app') && !has.heading.test('Connect your authenticator app') ? 'intro' : has.heading.test('Connect your authenticator app') ? 'binding' : 'confirm'); },
+      getByRole(role, { name }) { return loc(kind === 'intro' && name.test('Continue') ? 'intro-continue' : kind === 'binding' && role === 'button' && name.test('Continue') && !name.test('Verify') ? 'binding-continue' : name.test(keyButton ? 'Key' : "Can't scan? Enter key manually") ? 'manual' : kind === 'binding' ? role === 'textbox' && name.test('Code') ? 'new-code' : name.test('Verify') ? 'bind' : 'unknown' : 'confirm-disable'); },
       locator: selector => loc(selector === 'code' ? 'key' : 'alert'),
       isVisible: async () => visible(kind),
       getAttribute: async () => String(checked),
@@ -162,15 +162,20 @@ function securityPage(store, { fail = '', on = true } = {}) {
       click: async () => {
         history.push('click:' + kind);
         if (kind === 'toggle') {
-          assert.ok(store.twofaSummary(email).rotating);
-          view = checked ? 'confirm' : 'binding';
+          assert.ok(store.twofaSummary(email).rotating || store.twofaSummary(email).canResumeSetup);
+          view = checked ? 'confirm' : intro ? 'intro' : 'binding';
+        } else if (kind === 'intro-continue') {
+          view = 'binding';
+        } else if (kind === 'binding-continue') {
+          view = 'code-entry';
         } else if (kind === 'confirm-disable') {
           if (fail === 'disable') throw new Error('fixture disable failed');
           view = 'identity';
         } else if (kind === 'submit') { checked = false; view = 'settings'; }
         else if (kind === 'bind') {
           const disk = JSON.parse(fs.readFileSync(store.twofaFile, 'utf8'))[email];
-          assert.equal(disk.secret, oldSecret); assert.equal(disk.pendingSecret, newSecret); assert.ok(disk.pendingSubmittedAt);
+          if (disk.rotationStartedAt) { assert.equal(disk.secret, oldSecret); assert.equal(disk.pendingSecret, newSecret); assert.ok(disk.pendingSubmittedAt); }
+          else { assert.equal(disk.secret, newSecret); assert.ok(disk.submittedAt); assert.ok(disk.supersededUnsubmittedSecrets.includes(oldSecret)); }
           checked = true; view = 'settings';
           if (fail === 'bind') throw new Error('fixture disconnected after submit');
         }
@@ -227,6 +232,60 @@ test('中断后官网已开启新绑定则只验证；官网关闭则重新绑�
     assert.equal(store.getTwofaSecret(email), newSecret);
     if (!on) assert.equal(store.twofa.get(email).supersededSecret, newSecret);
   }
+});
+
+test('绑定窗口已直接显示密钥时不再点击手动入口', async t => {
+  const { store } = fixture(t);
+  store.writeAccountRows([{ email, password, totpSecret: oldSecret }]);
+  store.beginTwofaRotation(email);
+  const page = securityPage(store, { on: false, keyVisible: true });
+  await rotate(store, page, async () => store.confirmTwofaRotation(email));
+  assert.ok(!page.history.includes('click:manual'));
+  assert.equal(store.getTwofaSecret(email), newSecret);
+});
+
+test('首次开启 2FA 优先核实已有会话，绑定后的新登录验证仍由流程执行', async t => {
+  const { store } = fixture(t);
+  store.writeAccountRows([{ email, mailUrl: 'https://mail.example.test/inbox', password }]);
+  store.saveInfo(email, { accessToken: 'fixture-session', raw: JSON.stringify({ user: { email } }) });
+  store.getAccount(email).info = store.infoStore.get(email);
+  store.saveProfile(email, { cookies: [], origins: [] });
+  const filename = require.resolve('../src/worker');
+  const load = createRequire(filename);
+  const moduleMock = { exports: {} };
+  let checked = false;
+  vm.runInNewContext(fs.readFileSync(filename, 'utf8'), { module: moduleMock, require: name => name === './twofa' ? {
+    ...load(name), enableTwofa: async options => { assert.equal(options.email, email); checked = true; },
+  } : load(name), process, console, Buffer, setTimeout, clearTimeout, URL, AbortController }, { filename });
+  const worker = new moduleMock.exports({ store, config });
+  worker._loginWithEmail = async (target, current) => { assert.equal(target, email); current.session = { email, page: {}, context: {} }; };
+  worker._loginOne = async () => { throw new Error('未优先复用已有会话'); };
+  await worker._initializeTwofa(email, task());
+  assert.equal(checked, true);
+});
+
+test('验证器介绍页先继续进入绑定窗口，再读取密钥', async t => {
+  const { store } = fixture(t);
+  store.writeAccountRows([{ email, password, totpSecret: oldSecret }]);
+  store.beginTwofaRotation(email);
+  const page = securityPage(store, { on: false, intro: true, keyButton: true, codeOnNextPage: true });
+  await rotate(store, page, async () => store.confirmTwofaRotation(email));
+  assert.ok(page.history.indexOf('click:intro-continue') < page.history.indexOf('click:manual'));
+  assert.ok(page.history.indexOf('click:manual') < page.history.indexOf('click:binding-continue'));
+  assert.equal(store.getTwofaSecret(email), newSecret);
+});
+
+test('继续未提交的 2FA 时官网密钥变化，保留旧候选后使用新密钥', async t => {
+  const { store } = fixture(t);
+  store.recordTwofa(email, { secret: oldSecret, preparedAt: new Date().toISOString() });
+  assert.equal(store.twofaSummary(email).canResumeSetup, true);
+  const page = securityPage(store, { on: false, intro: true, keyButton: true });
+  await enableTwofa({ page, context: null, email, mail: {}, store, signal: new AbortController().signal,
+    log: () => {}, stage: () => {}, verifyLogin: async () => {} });
+  assert.equal(store.getTwofaSecret(email), newSecret);
+  assert.ok(store.twofa.get(email).supersededUnsubmittedSecrets.includes(oldSecret));
+  assert.ok(store.twofa.get(email).submittedAt);
+  assert.ok(page.history.includes('click:bind'));
 });
 
 test('worker 只有通过新密钥的 TOTP 才确认更换，密码登录无挑战时保留待确认状态', async t => {

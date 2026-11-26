@@ -96,9 +96,31 @@ function checkUrl(url) {
 
 async function loadMailbox(page, url, waitMs, timeout = 30000) {
   const deadline = Date.now() + timeout;
-  const wdmail = new URL(url).hostname === 'api.wdmail.top';
-  const response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout });
+  const target = new URL(url);
+  const wdmail = target.hostname === 'api.wdmail.top';
+  const pickupApi = /^\/api\/pickup\/[^/]+\/?$/.test(target.pathname);
+  if (pickupApi) {
+    target.searchParams.set('format', 'json');
+    target.searchParams.set('body', '1');
+    target.searchParams.set('limit', '30');
+  }
+  const response = await page.goto(pickupApi ? target.toString() : url, { waitUntil: 'domcontentloaded', timeout });
   if (response && !response.ok()) throw new Error(`取件服务返回 HTTP ${response.status()}`);
+  if (pickupApi) {
+    let result;
+    try { result = await response.json(); } catch { throw new Error('取件服务返回的 JSON 格式不正确'); }
+    if (result?.success !== true || !Array.isArray(result.data?.messages)) throw new Error('取件服务返回的邮件列表格式不正确');
+    const mails = result.data.messages.filter(mail => typeof mail?.subject === 'string' && /ChatGPT/i.test(mail.subject) &&
+      /openai|(?:login|verification) code/i.test(`${mail.from || ''} ${mail.subject}`)).map(mail => ({
+      id: typeof mail.id === 'string' ? mail.id : '',
+      subject: mail.subject, sender: mail.from, recipient: mail.to,
+      time: mail.date, text: typeof mail.preview === 'string' ? mail.preview : '',
+    }));
+    if (mails.some(mail => !mail.id || typeof mail.recipient !== 'string' || !Number.isFinite(mailReceivedAt(mail.time)))) {
+      throw new Error('取件箱邮件缺少稳定 ID、收件人或有效时间，无法识别本次验证码');
+    }
+    return mails;
+  }
   await page.waitForSelector(wdmail ? 'header, article' : 'article, .empty, [class*="empty"]', { timeout: Math.min(Math.max(1, deadline - Date.now()), 15000) }).catch(() => {});
   await page.waitForTimeout(Math.min(waitMs, Math.max(0, deadline - Date.now())));
   const mails = await scrapeMessages(page, wdmail);

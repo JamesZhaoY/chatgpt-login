@@ -7,7 +7,8 @@
     "start": "node src/index.js",
     "start:headed": "HEADLESS_OVERRIDE=0 node src/index.js",
     "reset": "rm -f info.json profiles/*.json && echo '已清空 token 库和会话缓存'",
-    "test": "node --test test/*.test.js"
+    "test": "node --test test/*.test.js",
+    "test:onboarding": "node --test test/local-onboarding.test.js"
   },
   "keywords": [],
   "author": "",

@@ -6,6 +6,39 @@ function account(email, patch = {}) {
   return { email, status: 'idle', mailUrl: '', logs: [], password: {}, twofa: {}, ...patch };
 }
 
+test('需处理仅包含未禁用且未执行中的无效会话，不受其他操作的历史错误影响', async () => {
+  const { context, elements } = await frontend();
+  const validInfo = { accessToken: 'fixture', expires: '2099-01-01T00:00:00Z' };
+  context.app.accounts = [
+    account('valid@example.test', { status: 'ok', info: validInfo, password: { error: '旧错误' }, twofa: { error: '旧错误', pending: true }, plan: { error: '旧错误' } }),
+    account('failed-valid@example.test', { status: 'fail', info: validInfo }),
+    account('missing@example.test'),
+    account('expired@example.test', { status: 'ok', info: { accessToken: 'fixture', expires: '2000-01-01T00:00:00Z' } }),
+    account('running@example.test', { status: 'running' }),
+    account('disabled@example.test', { unavailable: true }),
+  ];
+  context.app.filter = 'attention';
+  assert.deepEqual(Array.from(context.filteredAccounts(), a => a.email), ['missing@example.test', 'expired@example.test']);
+  context.app.loaded = true;
+  context.renderAccounts();
+  assert.equal(Number(elements.get('#countAttention').textContent), 2);
+  assert.equal(elements.get('#attentionNote').textContent, '会话缺失或已过期');
+});
+
+test('登录成功的卡片不显示历史密码超时，日志详情仍注明操作来源', async () => {
+  const { context, document, elements } = await frontend();
+  const { openAccountDetails } = await import('../public/js/account-details.mjs');
+  const item = account('alice@example.test', { status: 'ok', error: null, password: { error: '等待验证码超时（120s）' } });
+  context.app.accounts = [item];
+  assert.doesNotMatch(context.accountHTML(item), /等待验证码超时/);
+  assert.match(context.accountHTML({ ...item, status: 'fail', error: '当前登录失败' }), /当前登录失败/);
+  const dialog = document.querySelector('#accountDetails');
+  dialog.showModal = () => { dialog.open = true; };
+  openAccountDetails(item.email, 'logs');
+  assert.match(elements.get('#accountDetailsBody').innerHTML, /上次密码操作：等待验证码超时/);
+  assert.equal(item.password.error, '等待验证码超时（120s）');
+});
+
 test('多邮箱搜索按任一邮箱匹配，保留 + 标签，套餐及会话条件继续取交集', async () => {
   const { context, controls } = await frontend();
   context.app.accounts = [account('alice+1@icloud.com'), account('alice+2@icloud.com'), account('bob@example.test', { plan: { planType: 'plus', planName: 'Plus', fetchedAt: '2026-10-21' } })];

@@ -105,6 +105,7 @@ async function shutdown() {
   server.closeEvents();
   const closed = new Promise(resolve => server.close(resolve));
   await worker.stop();
+  await server.closeAccountWindows();
   await closeBrowser();
   server.closeAllConnections?.();
   await closed;

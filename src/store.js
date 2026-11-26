@@ -310,6 +310,10 @@ class Store {
   log(email, msg) {
     const acc = this.accounts.get(email);
     if (!acc) return;
+    const record = this.passwords.get(email);
+    for (const password of [record?.password, record?.pendingPassword, record?.previousPassword]) {
+      if (typeof password === 'string' && password) msg = String(msg).replaceAll(password, '[密码已隐藏]');
+    }
     const ts = new Date().toLocaleTimeString('zh-CN', { hour12: false });
     const line = `[${ts}] ${msg}`;
     acc.logs.push(line);
@@ -359,7 +363,7 @@ class Store {
       else this.passwords.delete(email);
       throw error;
     }
-    // 密码元数据中不带明文；按用户要求，运行日志会记录本次密码。
+    // 密码元数据和运行日志均不应包含明文密码。
     this.broadcast({ email, password: this.passwordSummary(email), loginMethod: this.loginMethod(email) });
     return record;
   }
@@ -398,6 +402,8 @@ class Store {
       hasSecret: Boolean(record?.secret), enabled: Boolean(record?.enabledAt && !record?.rotationStartedAt),
       hasImportedSecret: this.importedTwofa.has(email), importedAt: record?.importedAt || null,
       pending: Boolean(record?.secret && !record?.enabledAt || record?.rotationStartedAt || record?.pendingSecret),
+      setupNeedsCheck: Boolean(record?.secret && record?.submittedAt && !record?.enabledAt && !record?.verifiedAt && !record?.rotationStartedAt && !record?.pendingSecret),
+      canResumeSetup: Boolean(record?.secret && record?.preparedAt && !record?.submittedAt && !record?.enabledAt && !record?.verifiedAt && !record?.rotationStartedAt && !record?.pendingSecret && !record?.importedAt && !this.importedTwofa.has(email)),
       rotating: Boolean(record?.rotationStartedAt), hasPendingSecret: Boolean(record?.pendingSecret),
       enabledAt: record?.enabledAt || null, verifiedAt: record?.rotationStartedAt ? null : record?.verifiedAt || null,
       error: record?.error || null,
@@ -409,6 +415,16 @@ class Store {
     if (previous?.secret && patch.secret && previous.secret !== patch.secret) throw new Error('已有 2FA 密钥，不能覆盖；请先核实已启用的验证器');
     const record = { ...previous, ...patch };
     return this._saveTwofaRecord(email, record);
+  }
+
+  replaceUnsubmittedTwofaSecret(email, expected, value) {
+    const previous = this.twofa.get(email);
+    if (!this.twofaSummary(email).canResumeSetup || previous?.secret !== expected) throw new Error('候选 2FA 密钥状态已变化，不能替换');
+    const secret = normalizeSecret(value);
+    generateTotp(secret, { now: 0 });
+    const supersededSecrets = [...new Set([...(previous.supersededUnsubmittedSecrets || []), expected])];
+    return this._saveTwofaRecord(email, { ...previous, secret, supersededUnsubmittedSecrets: supersededSecrets,
+      preparedAt: new Date().toISOString(), error: null });
   }
 
   _saveTwofaRecord(email, record, stripImported = false) {

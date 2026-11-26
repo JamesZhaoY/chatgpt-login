@@ -44,6 +44,8 @@ function readBody(req) {
 }
 
 function createServer({ store, worker, config, publicDir }) {
+  const AccountWindows = require('./account-window');
+  const accountWindows = new AccountWindows(store.dir);
   config.proxy = store.proxy;
   let testingProxy = false;
   const sseClients = new Set();
@@ -109,6 +111,17 @@ function createServer({ store, worker, config, publicDir }) {
         return json(store.listAccounts());
       }
 
+      if (u.pathname === '/api/account-window') {
+        if (!method(['POST'])) return;
+        const { email, action } = await readBody(req);
+        if (!store.accounts.has(email)) return json({ error: '请选择已保存的账号' }, 404);
+        if (!['setup', 'logout-devices'].includes(action)) return json({ error: '未知窗口操作' }, 400);
+        if (worker.inFlight?.has(email) || worker.queue?.includes(email)) return json({ error: '请等待当前账号的任务结束' }, 409);
+        try { await accountWindows.open(email, action); }
+        catch { return json({ error: '官网窗口未就绪，请检查浏览器窗口或网络连接' }, 503); }
+        return json({ opened: true });
+      }
+
       if (u.pathname === '/api/accounts/export') {
         if (!method(['POST'])) return;
         const { emails } = await readBody(req);
@@ -160,7 +173,7 @@ function createServer({ store, worker, config, publicDir }) {
         return json({ queued: queued.length, emails: queued }, 202);
       }
 
-      if (['/api/twofa/init', '/api/twofa/verify', '/api/twofa/replace'].includes(u.pathname)) {
+      if (['/api/twofa/init', '/api/twofa/check', '/api/twofa/verify', '/api/twofa/replace'].includes(u.pathname)) {
         if (!method(['POST'])) return;
         const body = await readBody(req);
         const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
@@ -170,8 +183,10 @@ function createServer({ store, worker, config, publicDir }) {
         const isReplace = u.pathname.endsWith('/replace');
         const hasSecret = store.getTwofaSecret(email) || store.importedTwofa.has(email);
         if ((isVerify || isReplace) && !hasSecret) return json({ error: '该账号尚未保存 2FA 密钥' }, 400);
-        if (!isVerify && !isReplace && hasSecret) return json({ error: '已有 2FA 密钥，请使用「验证 2FA 登录」或「修改 2FA」' }, 409);
-        const queued = worker.enqueue([email], isReplace ? 'twofa-replace' : isVerify ? 'twofa-verify' : 'twofa');
+        const isCheck = u.pathname.endsWith('/check');
+        if (isCheck && !store.twofaSummary(email).setupNeedsCheck) return json({ error: '没有需要核对的绑定提交' }, 409);
+        if (!isCheck && !isVerify && !isReplace && hasSecret && !store.twofaSummary(email).canResumeSetup) return json({ error: '已有 2FA 密钥，请使用「验证 2FA 登录」或「修改 2FA」' }, 409);
+        const queued = worker.enqueue([email], isCheck ? 'twofa-check' : isReplace ? 'twofa-replace' : isVerify ? 'twofa-verify' : 'twofa');
         return json({ queued: queued.length, emails: queued }, 202);
       }
 
@@ -313,6 +328,7 @@ function createServer({ store, worker, config, publicDir }) {
     for (const res of sseClients) res.end();
     sseClients.clear();
   };
+  server.closeAccountWindows = () => accountWindows.close();
   return server;
 }
 

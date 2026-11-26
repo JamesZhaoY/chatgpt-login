@@ -139,6 +139,17 @@ test('密码独立保存，重启和刷新 Session 不丢失；列表与事件�
   assert.ok(!fs.readFileSync(store.infoFile, 'utf8').includes('Ab3!xY7@'));
 });
 
+test('日志和实时事件屏蔽当前、候选和旧密码', t => {
+  const { store } = fixture(t);
+  const events = [];
+  store.recordPassword(email, { password: 'CurrentPass9!', pendingPassword: 'PendingPass9!', previousPassword: 'PreviousPass9!' });
+  store.subscribe(event => events.push(event));
+  store.log(email, 'CurrentPass9! PendingPass9! PreviousPass9!');
+  const result = JSON.stringify({ logs: store.getAccount(email).logs, events });
+  for (const secret of ['CurrentPass9!', 'PendingPass9!', 'PreviousPass9!']) assert.ok(!result.includes(secret));
+  assert.match(result, /密码已隐藏/);
+});
+
 test('提交后中断保留候选和旧密码，并阻止覆盖未确认候选', t => {
   const { store, options } = fixture(t);
   store.recordPassword(email, { password: 'Old8!abc', updatedAt: new Date().toISOString() });
@@ -188,7 +199,7 @@ test('邮箱验证码、密码提交和成功记录贯通，提交前候选已�
   assert.equal(verified, true);
   assert.ok(store.passwordSummary(email).verifiedAt);
   assert.equal(store.passwordSummary(email).uncertain, false);
-  assert.ok(messages.join('\n').includes(store.getPassword(email)));
+  assert.ok(!messages.join('\n').includes(store.getPassword(email)));
   assert.ok(!messages.join('\n').includes('062198'));
 });
 
@@ -330,7 +341,7 @@ test('识别官网 aria-describedby 中无 alert 的密码长度错误', async (
   assert.equal(await readPasswordError(page), '');
 });
 
-function mockLoginPage({ result = 'ok', sessionEmail = email, totp = false } = {}) {
+function mockLoginPage({ result = 'ok', sessionEmail = email, totp = false, emailTimeouts = 0 } = {}) {
   let state = 'start';
   const values = {};
   const history = [];
@@ -339,17 +350,18 @@ function mockLoginPage({ result = 'ok', sessionEmail = email, totp = false } = {
     url: () => state === 'done' ? 'https://chatgpt.com/' : state === 'session' ? 'https://chatgpt.com/api/auth/session'
       : state === 'callback-error' ? 'https://chatgpt.com/auth/error?error=OAuthCallback'
       : 'https://auth.openai.com/' + (state === 'password' ? 'log-in/password' : state === 'totp' ? 'mfa/challenge' : 'email-verification'),
-    goto: async url => { state = url.includes('/api/auth/session') ? 'session' : 'email'; },
+    goto: async url => { history.push('goto:' + (url.includes('/api/auth/session') ? 'session' : 'login')); state = url.includes('/api/auth/session') ? 'session' : 'email'; },
     evaluate: async () => state === 'rejected' ? 'Wrong email or password' : '',
     waitForTimeout: async () => {},
     waitForURL: async fn => { assert.equal(fn(new URL(page.url())), true); },
-    locator: selector => loc(selector === 'body' ? 'body' : selector.startsWith('button') ? 'submit'
-      : selector.startsWith('input[type="email"]') ? 'email' : selector.startsWith('input[type="password"]') ? 'password' : 'otp'),
+    locator: selector => { if (selector.includes('a[href^="/log-in/password"]')) history.push('password-href-selector'); return loc(selector === 'body' ? 'body' : selector.startsWith('button') ? 'submit'
+      : selector.startsWith('input[type="email"]') ? 'email' : selector.startsWith('input[type="password"]') ? 'password' : 'otp');
+    },
     getByRole: role => loc(role === 'link' ? 'use-password' : 'submit'),
   };
   function loc(kind) {
     return {
-      first() { return this; }, or() { return this; }, waitFor: async () => {},
+      first() { return this; }, or() { return this; }, waitFor: async () => { if (kind === 'email' && emailTimeouts-- > 0) throw new Error('Timeout 45000ms exceeded'); },
       fill: async value => { values[kind] = value; history.push('fill:' + kind); },
       isVisible: async () => state === kind || (state === 'totp' && kind === 'otp') || (state === 'choose-password' && kind === 'use-password'),
       innerText: async () => state === 'session' ? JSON.stringify({ accessToken: 'new-session', user: { email: sessionEmail } }) : state === 'totp' ? 'Enter the code from your authenticator app' : `Check your inbox: ${email}. Resend email`,
@@ -378,6 +390,20 @@ test('密码登录显式选择密码入口，并处理密码后的附加邮箱�
   assert.equal(page.values.otp, '062198');
   assert.ok(page.history.indexOf('fill:password') < page.history.indexOf('fill:otp'));
   assert.ok(page.history.includes('click:use-password'));
+  assert.ok(page.history.includes('password-href-selector'));
+});
+
+test('邮箱输入框超时时先重新打开登录页，日志不含密码', async () => {
+  const page = mockLoginPage({ emailTimeouts: 1 });
+  const logs = [];
+  const password = 'FixturePass45!';
+  await verifyPasswordLogin({ page, context: mailboxContext(), email, password,
+    mail: { url: 'https://mail.example.test/inbox', pageLoadWaitMs: 0 }, signal: new AbortController().signal, log: text => logs.push(text) });
+  assert.equal(page.history.filter(x => x === 'goto:login').length, 2);
+  assert.ok(page.history.includes('password-href-selector'));
+  assert.ok(!logs.join('\n').includes(password));
+  await assert.rejects(verifyPasswordLogin({ page: mockLoginPage({ emailTimeouts: 2 }), context: mailboxContext(), email, password,
+    mail: {}, signal: new AbortController().signal, log: () => {} }), /邮箱输入框未出现/);
 });
 
 test('错误密码、错误账号和 OAuth 回调失败都不能标记登录成功', async () => {
